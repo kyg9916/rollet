@@ -158,10 +158,17 @@
         const PERKS = {
             "LastSupper": {
                 name: "최후의 만찬 🍷",
-                description: "게임 시작 시 HP 를 2 늘립니다."
+                description: "게임 시작 시 HP 를 1 늘립니다."
             },
-            // 나중에 다른 능력을 추가할 때 여기에 넣으면 됩니다.
-            // "LuckyCharm": { name: "행운의 부적 🍀", description: "초기 아이템 1개를 더 받습니다." }
+            "LuckyPouch": {
+                name: "행운의 주머니 🍀",
+                description: "웨이브 시작 시 아이템을 1개 더 받습니다."
+            },
+            "BlessedMagazine": {
+                name: "축복받은 탄창 ✨",
+                description: "웨이브 시작 시, 첫 탄환은 무조건 공포탄입니다."
+            },
+            // 그 외 추가할 것
         };
 
         const ITEM_EFFECTS = {
@@ -200,19 +207,19 @@
         const PAGE_SETTINGS = {
             // 웨이브별 설정: [playerHP, dealerHP, liveCount, blankCount, itemCount, minBullet, maxBullet]
             1: {
-                playerHP: 4, dealerHP: 4,
+                playerHP: 4, dealerHP: 5,
                 live: 2, blank: 2, itemCount: 2,
                 minBullet: 4, maxBullet: 6, // 4발 ~ 6발 장전
                 bulletText: "4발 ~ 6발"
             },
             2: {
-                playerHP: 5, dealerHP: 5,
+                playerHP: 5, dealerHP: 7,
                 live: 3, blank: 3, itemCount: 2,
                 minBullet: 5, maxBullet: 8, // 5발 ~ 8발 장전
                 bulletText: "5발 ~ 8발"
             },
             3: {
-                playerHP: 6, dealerHP: 6,
+                playerHP: 6, dealerHP: 9,
                 live: 4, blank: 4, itemCount: 2,
                 minBullet: 6, maxBullet: 10, // 6발 ~ 10발 장전
                 bulletText: "6발 ~ 10발"
@@ -260,6 +267,7 @@
             const settings = PAGE_SETTINGS[round];
 
             if (!settings) {
+                // 웨이브 설정이 없으면 (예: 4웨이브) 게임 종료 또는 정지
                 return;
             }
 
@@ -269,29 +277,34 @@
 
             // 1-1. 특수 능력: 최후의 만찬 (LastSupper) 효과 적용
             if (gameState.selectedPerk === 'LastSupper' && gameState.currentPage === 1) {
-                // 최대 HP를 건드리지 않고, 현재 HP만 2 증가시킵니다.
+                // 💡 [수정] HP +1 -> HP +2로 변경했습니다.
                 gameState.playerHP += 2;
-
-                // 🚨 [중요] 디버그용으로 콘솔에 메시지 출력
                 console.log("최후의 만찬 (1 웨이브) 효과 적용: 플레이어 HP +2");
             }
 
-            // 2. 아이템 초기화 및 지급! (새 웨이브 시작 시 아이템 리셋 후 지급)
+
+            // 2. 아이템 초기화 및 지급!
             gameState.playerItems = []; // 아이템 리셋
             gameState.dealerItems = []; // 아이템 리셋
             const allItems = Object.keys(ITEM_EFFECTS);
 
             function giveRandomItem(itemsArray) {
-                // MAX_ITEM_SLOTS(8개) 제한 없이 일단 설정된 itemCount 만큼 지급
                 const item = shuffle([...allItems])[0];
                 itemsArray.push(item);
                 return item;
             }
 
-            // 웨이브 설정의 itemCount 만큼 아이템을 지급
+            // 웨이브 설정의 itemCount 만큼 아이템을 지급 (기존 로직 유지)
             for (let i = 0; i < settings.itemCount; i++) {
                 giveRandomItem(gameState.playerItems);
                 giveRandomItem(gameState.dealerItems);
+            }
+
+            // 💡 [추가] 특수 능력: 1-2. 행운의 주머니
+            if (gameState.selectedPerk === 'LuckyPouch') {
+                // 아이템 지급 루프와 별개로, 플레이어에게 아이템 1개 추가 지급
+                giveRandomItem(gameState.playerItems);
+                console.log("행운의 주머니 효과 적용: 플레이어 아이템 +1");
             }
             // ----------------------------------------------------
 
@@ -308,8 +321,7 @@
 
 
             // 4. 총 총알 개수 결정 (최소 minBullet 발, 최대 maxBullet 발)
-            const minBullet = settings.minBullet || 2; // 안전을 위해 기본값 2 설정
-            // Math.random() * (최댓값 - 최솟값 + 1) + 최솟값
+            const minBullet = settings.minBullet || 2;
             const totalBullets = Math.floor(Math.random() * (settings.maxBullet - minBullet + 1)) + minBullet;
 
             // 5. 실탄 개수 결정 (0개부터 총 총알 개수까지)
@@ -325,6 +337,26 @@
 
             gameState.magazine = shuffle(newMagazine);
             gameState.knownNextShot = null;
+
+            // 💡 [추가] 특수 능력: 축복받은 탄창 (BlessedMagazine) 효과 적용
+            if (gameState.selectedPerk === 'BlessedMagazine') {
+                const blankIndex = gameState.magazine.findIndex(isLive => isLive === false);
+
+                if (blankIndex > 0) {
+                    // 공포탄을 찾았다면, 그 공포탄을 맨 앞으로 이동
+                    const blankBullet = gameState.magazine.splice(blankIndex, 1)[0];
+                    gameState.magazine.unshift(blankBullet);
+                    console.log("축복받은 탄창 효과 적용: 첫 탄환은 무조건 공포탄으로 설정됨.");
+                } else if (blankIndex === 0) {
+                    console.log("축복받은 탄창 효과 적용: 첫 탄환이 이미 공포탄입니다.");
+                } else if (gameState.magazine.length > 0) {
+                    // 공포탄이 아예 없는 상황(모두 실탄)이라면, 첫 탄환을 강제로 공포탄으로 변경
+                    gameState.magazine[0] = false;
+                    console.warn("축복받은 탄창 경고: 공포탄이 없어 첫 탄환을 강제로 공포탄으로 변경했습니다.");
+                }
+            }
+            // ----------------------------------------------------
+
 
             // 8. 웨이브 정보 텍스트 업데이트 (UI 갱신을 위해)
             settings.bulletText = `${totalBullets}발 (실탄 ${liveCount}, 공포탄 ${blankCount})`;
