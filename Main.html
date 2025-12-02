@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔫 룰렛 게임 메인 메뉴 🎲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+            color: #e5e7eb;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+        /* 스크롤바 커스텀 (모달 내부 스크롤을 보기 좋게 만듭니다) */
+        .custom-scroll::-webkit-scrollbar { width: 8px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-track { background-color: #374151; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="max-w-xl mx-auto p-10 bg-gray-800 rounded-xl shadow-2xl">
+    <h1 class="text-6xl font-extrabold text-red-500 mb-8 animate-pulse">
+        🔫 벅샷룰렛 게임 🎲
+    </h1>
+
+    <div class="space-y-6">
+        <a href="MainGame.html" class="block w-full">
+            <button class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg shadow-lg text-xl transition duration-200">
+                게임 시작하기
+            </button>
+        </a>
+
+        <button onclick="showItemsList()" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-4 px-8 rounded-lg shadow-lg text-xl transition duration-200">
+            게임 아이템 목록
+        </button>
+
+        <button onclick="showRules()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-lg shadow-lg text-xl transition duration-200">
+            게임 방법 보기
+        </button>
+    </div>
+</div>
+
+<div id="rules-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden items-center justify-center z-50">
+    <div class="bg-gray-800 rounded-lg shadow-2xl p-8 max-w-lg w-full transform transition-all duration-300 scale-95 opacity-0" id="rules-modal-content">
+        <div class="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
+            <h2 class="text-3xl font-bold text-red-500">📜 게임 방법 📜</h2>
+            <button onclick="closeRulesModal()" class="text-gray-400 hover:text-white transition duration-200 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div class="text-left space-y-3 text-lg">
+            <p><strong class="text-yellow-400">1. 목표:</strong> 딜러의 HP를 0으로 만들면 승리합니다.</p>
+            <p><strong class="text-yellow-400">2. 턴:</strong> 플레이어와 딜러가 번갈아 가며 턴을 진행합니다.</p>
+            <p><strong class="text-yellow-400">3. 사격:</strong></p>
+            <ul class="list-disc list-inside ml-4 space-y-1">
+                <li><strong class="text-red-400">실탄(🔴):</strong> 상대에게 쏘든 자신에게 쏘든 무조건 상대에게 턴이 넘어갑니다.</li>
+                <li><strong class="text-green-400">공포탄(🟡):</strong> 자신에게 쏘면 턴을 유지하고, 상대에게 쏘면 턴이 넘어갑니다.</li>
+            </ul>
+            <p><strong class="text-yellow-400">4. 아이템:</strong> 아이템을 사용하여 승리의 기회를 잡으세요! (아이템 사용 시 턴은 넘어가지 않습니다.)</p>
+        </div>
+
+        <button onclick="closeRulesModal()" class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-200">
+            확인
+        </button>
+    </div>
+</div>
+
+<div id="items-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden items-center justify-center z-50">
+    <div class="bg-gray-800 rounded-lg shadow-2xl p-8 max-w-2xl w-full h-4/5 transform transition-all duration-300 scale-95 opacity-0 flex flex-col" id="items-modal-content">
+        <div class="flex justify-between items-center border-b border-gray-700 pb-3 mb-4 flex-shrink-0">
+            <h2 class="text-3xl font-bold text-yellow-500">✨ 게임 아이템 목록 ✨</h2>
+            <button onclick="closeItemsModal()" class="text-gray-400 hover:text-white transition duration-200 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div id="item-list" class="overflow-y-auto custom-scroll flex-grow">
+        </div>
+
+        <button onclick="closeItemsModal()" class="mt-6 w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 rounded-lg transition duration-200 flex-shrink-0">
+            확인
+        </button>
+    </div>
+</div>
+
+<script>
+    // ----------------------------------------------------
+    // 1. 아이템 데이터 정의
+    // ----------------------------------------------------
+    const ITEM_DATA = [
+        { name: "확대경", icon: "🔍", effect: "다음 탄환 확인." },
+        { name: "수갑", icon: "🔗", effect: "상대 다음 턴 스킵." },
+        { name: "담배", icon: "🚬", effect: "HP +1 회복." },
+        { name: "쇠톱", icon: "🪚", effect: "다음 사격 피해 2배." },
+        { name: "방탄복", icon: "🛡️", effect: "상대 공격 1회 무효." },
+        { name: "주사기", icon: "💉", effect: "상대 아이템 1개 훔치기." },
+        { name: "나이프", icon: "🔪", effect: "상대 HP 1 감소." },
+        { name: "손톱", icon: "💅", effect: "앞 탄환 강제 배출." },
+        { name: "맥주", icon: "🍺", effect: "뒤 탄환 강제 배출." },
+        { name: "부적", icon: "✨", effect: "다음 피해를 1로 고정." },
+        { name: "폭탄", icon: "💥", effect: "상대 2, 자신 1 피해." },
+        { name: "휴대폰", icon: "📱", effect: "현재 장전된 탄환의 X번째 탄환을 확인합니다." },
+        { name: "약", icon: "💊", effect: "50% 확률로 2 HP를 얻거나 1 HP 를 잃습니다." },
+        { name: "동전", icon: "🪙", effect: "70% 확률로 +1 대미지를 추가하거나, 30% 확률로 1 HP를 잃습니다." },
+        { name: "눈알", icon: "👁️", effect: "자신의 HP를 1 잃고 2개의 아이템 획득." },
+        { name: "술", icon: "🥃", effect: "HP를 2 회복하고, 다음 턴 스킵." },
+        { name: "당첨된복권", icon: "🎫", effect: "50% 확률로 상대 1 피해 또는 아이템 1개 획득." },
+        { name: "미니에어컨", icon: "❄️", effect: "현재 탄환 순서를 뒤집음." },
+        { name: "모래시계", icon: "⏳", effect: "남아있는 탄환을 모두 버리고 새롭게 장전합니다." },
+        { name: "저격총", icon: "🎯", effect: "상대방에게 2 HP 피해를 입힙니다." },
+        { name: "도화선", icon: "🔥", effect: "상대방의 폭탄 아이템을 무효화 시킵니다." },
+        { name: "트릭박스", icon: "🎁", effect: "30% 확률로 상대방과 자신의 체력을 뒤바꿉니다. 70% 확률로 HP-2 피해를 입습니다." }
+    ];
+
+    // ----------------------------------------------------
+    // 2. DOM 요소 및 기본 모달 함수 (게임 방법)
+    // ----------------------------------------------------
+    const rulesModal = document.getElementById('rules-modal');
+    const rulesModalContent = document.getElementById('rules-modal-content');
+
+    // 💡 [추가] 아이템 모달 관련 변수
+    const itemsModal = document.getElementById('items-modal');
+    const itemsModalContent = document.getElementById('items-modal-content');
+    const itemListElement = document.getElementById('item-list');
+
+    // 게임 방법 모달
+    function showRules() {
+        rulesModal.classList.remove('hidden');
+        rulesModal.classList.add('flex');
+        setTimeout(() => {
+            rulesModalContent.classList.remove('scale-95', 'opacity-0');
+            rulesModalContent.classList.add('scale-100', 'opacity-100');
+        }, 10);
+    }
+
+    function closeRulesModal() {
+        rulesModalContent.classList.remove('scale-100', 'opacity-100');
+        rulesModalContent.classList.add('scale-95', 'opacity-0');
+        setTimeout(() => {
+            rulesModal.classList.add('hidden');
+            rulesModal.classList.remove('flex');
+        }, 300);
+    }
+
+    // ----------------------------------------------------
+    // 3. 💡 [추가] 아이템 목록 모달 함수
+    // ----------------------------------------------------
+    function generateItemsHTML() {
+        // 아이템 데이터를 HTML 코드로 변환
+        return ITEM_DATA.map(item => `
+            <div class="p-4 bg-gray-700 rounded-lg shadow-md flex items-center space-x-4">
+                <span class="text-4xl flex-shrink-0">${item.icon}</span>
+                <div class="text-left">
+                    <h3 class="text-xl font-semibold text-yellow-300">${item.name}</h3>
+                    <p class="text-gray-300 text-sm">${item.effect}</p>
+                </div>
+            </div>
+        `).join(''); // 배열을 하나의 HTML 문자열로 합칩니다.
+    }
+
+    function showItemsList() {
+        // 아이템 목록을 먼저 생성하여 모달 내용에 넣습니다.
+        itemListElement.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">${generateItemsHTML()}</div>`;
+
+        // 모달을 표시
+        itemsModal.classList.remove('hidden');
+        itemsModal.classList.add('flex');
+
+        // 부드러운 등장 효과 추가
+        setTimeout(() => {
+            itemsModalContent.classList.remove('scale-95', 'opacity-0');
+            itemsModalContent.classList.add('scale-100', 'opacity-100');
+        }, 10);
+    }
+
+    function closeItemsModal() {
+        // 부드러운 퇴장 효과
+        itemsModalContent.classList.remove('scale-100', 'opacity-100');
+        itemsModalContent.classList.add('scale-95', 'opacity-0');
+
+        // 트랜지션이 끝난 후 숨김
+        setTimeout(() => {
+            itemsModal.classList.add('hidden');
+            itemsModal.classList.remove('flex');
+        }, 300);
+    }
+
+
+    // ----------------------------------------------------
+    // 4. 모달 외부 클릭 시 닫기 기능 통합
+    // ----------------------------------------------------
+    // 전체 페이지에서 클릭 이벤트를 감지하여 어떤 모달이 열려 있는지 확인합니다.
+    document.addEventListener('click', (e) => {
+        // 게임 방법 모달 닫기
+        if (!rulesModal.classList.contains('hidden') && e.target === rulesModal) {
+            closeRulesModal();
+        }
+        // 아이템 목록 모달 닫기
+        if (!itemsModal.classList.contains('hidden') && e.target === itemsModal) {
+            closeItemsModal();
+        }
+    });
+
+</script>
+
+</body>
+</html>

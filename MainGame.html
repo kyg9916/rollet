@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔫 자바스크립트 룰렛 게임 (웨이브 시스템) 🎲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 기본 테마 및 카드 스타일 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a; /* 진한 블랙 배경 */
+            color: #e5e7eb; /* 밝은 회색 글씨 */
+            margin: 0;
+            min-height: 100vh;
+        }
+        .item-card {
+            width: 130px; /* 고정 크기 유지 */
+            height: 180px;
+            min-width: 130px;
+            min-height: 180px;
+            background-color: #2c2c2c;
+            border: 2px solid #3d3d3d;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .item-card:hover:not(.empty) {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        }
+        .item-card.empty {
+            opacity: 0.3;
+            border-style: dashed;
+            cursor: default;
+            background-color: #1f1f1f;
+            box-shadow: none;
+            transform: none;
+        }
+        /* 아이템 컨테이너: 4x2 격자 레이아웃을 강제하여 일관성을 높입니다. */
+        .item-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); /* 최소 110px */
+            gap: 1rem;
+            justify-content: center;
+        }
+        /* 모바일 환경에서는 3열까지만 허용하여 너무 작아지는 것을 방지 */
+        @media (max-width: 768px) {
+            .item-grid {
+                grid-template-columns: repeat(3, minmax(100px, 1fr));
+            }
+            .item-card {
+                width: 100%; /* 모바일에서 너비 채우기 */
+                height: 160px;
+                min-width: 100px;
+            }
+        }
+
+        .game-output { max-height: 480px; } /* 높이 제한 추가 */
+        /* 스크롤바 스타일 */
+        .game-output::-webkit-scrollbar { width: 8px; }
+        .game-output::-webkit-scrollbar-thumb { background-color: #4a4; border-radius: 4px; }
+        .game-output::-webkit-scrollbar-track { background: #2c2c2c; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+<div class="max-w-6xl mx-auto">
+    <h1 class="text-4xl font-bold text-center text-red-500 mb-6 border-b border-gray-700 pb-3">
+        🔫 룰렛 게임 🎲 (웨이브 시스템)
+    </h1>
+
+    <div class="mb-6">
+        <h2 class="text-xl font-semibold mb-2 text-gray-400">
+            🤖 딜러 아이템 (HP: <span id="dealer-hp" class="text-red-400 font-bold">?</span>)
+        </h2>
+        <div id="dealer-items-container" class="item-grid p-4 rounded-lg bg-gray-800 shadow-xl">
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div class="lg:col-span-1 bg-gray-800 p-4 rounded-lg shadow-xl order-2 lg:order-1">
+            <h3 class="text-lg font-semibold border-b border-gray-700 pb-2 mb-3">현재 상태</h3>
+            <p id="current-round" class="mb-2 text-purple-300">웨이브: ?</p>
+            <p id="current-turn" class="mb-2 text-yellow-300">턴: ?</p>
+            <p id="magazine-status" class="mb-2">탄창: ?</p>
+            <p id="known-next-shot" class="mb-2">다음 탄환 정보: ?</p>
+            <p id="active-effects" class="text-sm text-blue-400">활성화된 효과: 없음</p>
+        </div>
+
+        <div class="lg:col-span-2 bg-gray-900 p-4 rounded-lg shadow-inner border border-gray-700 order-1 lg:order-2">
+            <h3 class="text-lg font-semibold border-b border-gray-700 pb-2 mb-3">게임 기록</h3>
+            <div class="game-output text-sm h-64 overflow-y-auto" id="output">
+                게임을 시작하려면 아래 '게임 시작' 버튼을 누르세요.
+            </div>
+
+            <div id="controls-shot" class="flex flex-wrap justify-center gap-4 p-3 mt-4 bg-gray-800 rounded-lg">
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-6">
+        <h2 class="text-xl font-semibold mb-2 text-gray-400">
+            😎 플레이어 아이템 (HP: <span id="player-hp" class="text-green-400 font-bold">?</span>)
+        </h2>
+        <div id="player-items-container" class="item-grid p-4 rounded-lg bg-gray-800 shadow-xl">
+        </div>
+    </div>
+
+    <div id="controls-start" class="flex flex-wrap justify-center gap-4 p-4 bg-gray-700 rounded-lg shadow-2xl">
+        <button onclick="GameModule.startGame()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200">
+            게임 시작
+        </button>
+    </div>
+
+</div>
+
+<script>
+    // ===============================================
+    // 💡 GameModule: 모든 게임 로직을 캡슐화하여 모듈화합니다.
+    // ===============================================
+    const GameModule = (() => {
+        // --- 1. DOM 요소 캐싱 ---
+        const outputElement = document.getElementById('output');
+        const dealerItemsContainer = document.getElementById('dealer-items-container');
+        const playerItemsContainer = document.getElementById('player-items-container');
+        const controlsShotElement = document.getElementById('controls-shot'); // 사격 버튼 컨테이너
+        const controlsStartElement = document.getElementById('controls-start'); // 시작 버튼 컨테이너
+
+        // --- 2. 상태 객체 및 상수 ---
+        let gameState = {
+            playerHP: 0,
+            dealerHP: 0,
+            playerItems: [],
+            dealerItems: [],
+            magazine: [], // [true, false, true, false, ...] (true: 실탄, false: 공포탄)
+            knownNextShot: null,
+            turn: 'start', // 'start', 'player', 'dealer', 'end'
+            currentPage: 0, // 현재 라운드 번호 (0: 시작 전)
+            totalTurns: 0,
+            playerProtected: false,
+            dealerProtected: false,
+            playerSawActive: false,
+            dealerSawActive: false,
+            dealerSkipNextTurn: false,
+            playerSkipNextTurn: false,
+            playerDamageFixToOne: false,
+            dealerDamageFixToOne: false,
+            playerDamageAddOne: false,
+            dealerDamageAddOne: false,
+            knownBulletInfo: [],
+            playerDrunkSkip: false,
+            dealerDrunkSkip: false,
+            playerFuseActive: false,
+            dealerFuseActive: false,
+            selectedPerk: null, // 특수능력..
+        };
+
+        const PERKS = {
+            "LastSupper": {
+                name: "최후의 만찬 🍷",
+                description: "게임 시작 시 HP 를 2 늘립니다."
+            },
+            // 나중에 다른 능력을 추가할 때 여기에 넣으면 됩니다.
+            // "LuckyCharm": { name: "행운의 부적 🍀", description: "초기 아이템 1개를 더 받습니다." }
+        };
+
+        const ITEM_EFFECTS = {
+            "확대경": "다음 탄환 확인.",
+            "수갑": "상대 다음 턴 스킵.",
+            "담배": "HP +1 회복.",
+            "쇠톱": "다음 사격 피해 2배.",
+            "방탄복": "상대 공격 1회 무효.",
+            "주사기": "상대 아이템 1개 훔치기.",
+            "나이프": "상대 HP 1 감소.",
+            "손톱": "앞 탄환 강제 배출.",
+            "맥주": "뒤 탄환 강제 배출.",
+            "부적": "다음 피해를 1로 고정.",
+            "폭탄": "상대 2, 자신 1 피해.",
+            "휴대폰": "현재 장전된 탄환의 X번째 탄환을 확인합니다.",
+            "약": "50% 확률로 2 HP를 얻거나 1 HP 를 잃습니다.",
+            "동전": "70% 확률로 +1 대미지를 추가하거나, 30% 확률로 1 HP를 잃습니다.",
+            "눈알": "자신의 HP를 1 잃고 2개의 아이템 획득.",
+            "술": "HP를 2 회복하고, 다음 턴 스킵.",
+            "당첨된복권": "50% 확률로 상대 1 피해 또는 아이템 1개 획득.",
+            "미니에어컨": "현재 탄환 순서를 뒤집음.",
+            "도화선": "상대방의 폭탄 아이템을 무효화 시킵니다.",
+            "트릭박스": "30% 확률로 상대방과 자신의 체력을 뒤바꿉니다. 70% 확률로 HP-2 피해를 입습니다."
+        };
+
+        const ITEM_ICONS = { // UI 렌더링에 사용되는 아이콘
+            "확대경": "🔍", "수갑": "🔗", "담배": "🚬", "쇠톱": "🪚", "방탄복": "🛡️",
+            "주사기": "💉", "나이프": "🔪", "손톱": "💅", "맥주": "🍺",
+            "부적": "✨", "폭탄": "💥", "휴대폰": "📱", "약": "💊", "동전": "🪙", "눈알": "👁️", "술": "🥃",
+            "당첨된복권": "🎫", "미니에어컨": "❄️",
+            "모래시계": "⏳",
+            "저격총": "🎯",
+            "도화선": "🔥",
+            "트릭박스": "🎁"};
+
+        const PAGE_SETTINGS = {
+            // 웨이브별 설정: [playerHP, dealerHP, liveCount, blankCount, itemCount, minBullet, maxBullet]
+            1: {
+                playerHP: 4, dealerHP: 4,
+                live: 2, blank: 2, itemCount: 2,
+                minBullet: 4, maxBullet: 6, // 4발 ~ 6발 장전
+                bulletText: "4발 ~ 6발"
+            },
+            2: {
+                playerHP: 5, dealerHP: 5,
+                live: 3, blank: 3, itemCount: 2,
+                minBullet: 5, maxBullet: 8, // 5발 ~ 8발 장전
+                bulletText: "5발 ~ 8발"
+            },
+            3: {
+                playerHP: 6, dealerHP: 6,
+                live: 4, blank: 4, itemCount: 2,
+                minBullet: 6, maxBullet: 10, // 6발 ~ 10발 장전
+                bulletText: "6발 ~ 10발"
+            },
+            maxRound: 3, // 최대 웨이브 설정
+        };
+
+        const MAX_ITEM_SLOTS = 8; // 아이템 슬롯 개수
+
+        // --- 3. 유틸리티 함수 ---
+        /**
+         * 배열의 요소들을 무작위로 섞습니다. (Fisher-Yates 알고리즘)
+         */
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        /**
+         * 텍스트를 화면에 출력하고 약간의 지연을 줍니다.
+         */
+        async function slowPrint(text, delay = 50) {
+            const p = document.createElement('p');
+            p.className = 'my-1';
+            // 실탄/공포탄을 강조하는 스타일링
+            p.innerHTML = text.replace(/\n/g, '<br>')
+                .replace(/실탄 🔴/g, '<span class="text-red-500 font-bold">실탄 🔴</span>')
+                .replace(/공포탄 🟡/g, '<span class="text-yellow-400 font-bold">공포탄 🟡</span>');
+            outputElement.appendChild(p);
+            outputElement.scrollTop = outputElement.scrollHeight;
+            return new Promise(resolve => setTimeout(resolve, delay * 5));
+        }
+
+        // --- 4. 게임 핵심 로직 함수 ---
+
+        /**
+         * 새 웨이브(라운드)를 위한 아이템 지급 및 탄창 준비 (전체 초기화)
+         * 💡 웨이브 클리어 시 호출되어 HP, 아이템, 탄창을 모두 리셋합니다.
+         */
+        function setupNewRound() {
+            const round = gameState.currentPage;
+            const settings = PAGE_SETTINGS[round];
+
+            if (!settings) {
+                return;
+            }
+
+            // 1. HP 초기화 및 설정
+            gameState.playerHP = settings.playerHP;
+            gameState.dealerHP = settings.dealerHP;
+
+            // 1-1. 특수 능력: 최후의 만찬 (LastSupper) 효과 적용
+            if (gameState.selectedPerk === 'LastSupper' && gameState.currentPage === 1) {
+                // 최대 HP를 건드리지 않고, 현재 HP만 2 증가시킵니다.
+                gameState.playerHP += 2;
+
+                // 🚨 [중요] 디버그용으로 콘솔에 메시지 출력
+                console.log("최후의 만찬 (1 웨이브) 효과 적용: 플레이어 HP +2");
+            }
+
+            // 2. 아이템 초기화 및 지급! (새 웨이브 시작 시 아이템 리셋 후 지급)
+            gameState.playerItems = []; // 아이템 리셋
+            gameState.dealerItems = []; // 아이템 리셋
+            const allItems = Object.keys(ITEM_EFFECTS);
+
+            function giveRandomItem(itemsArray) {
+                // MAX_ITEM_SLOTS(8개) 제한 없이 일단 설정된 itemCount 만큼 지급
+                const item = shuffle([...allItems])[0];
+                itemsArray.push(item);
+                return item;
+            }
+
+            // 웨이브 설정의 itemCount 만큼 아이템을 지급
+            for (let i = 0; i < settings.itemCount; i++) {
+                giveRandomItem(gameState.playerItems);
+                giveRandomItem(gameState.dealerItems);
+            }
+            // ----------------------------------------------------
+
+
+            // 3. 임시 효과 리셋 (웨이브가 바뀌었으므로 모두 리셋)
+            gameState.playerProtected = false;
+            gameState.dealerProtected = false;
+            gameState.playerSawActive = false;
+            gameState.dealerSawActive = false;
+            gameState.dealerSkipNextTurn = false;
+            gameState.playerSkipNextTurn = false;
+            gameState.playerDamageFixToOne = false;
+            gameState.dealerDamageFixToOne = false;
+
+
+            // 4. 총 총알 개수 결정 (최소 minBullet 발, 최대 maxBullet 발)
+            const minBullet = settings.minBullet || 2; // 안전을 위해 기본값 2 설정
+            // Math.random() * (최댓값 - 최솟값 + 1) + 최솟값
+            const totalBullets = Math.floor(Math.random() * (settings.maxBullet - minBullet + 1)) + minBullet;
+
+            // 5. 실탄 개수 결정 (0개부터 총 총알 개수까지)
+            const liveCount = Math.floor(Math.random() * (totalBullets + 1));
+
+            // 6. 공포탄 개수 결정 (총알 - 실탄)
+            const blankCount = totalBullets - liveCount;
+
+            // 7. 새 탄창 생성 및 섞기
+            const newMagazine = [];
+            for (let i = 0; i < liveCount; i++) newMagazine.push(true);
+            for (let i = 0; i < blankCount; i++) newMagazine.push(false);
+
+            gameState.magazine = shuffle(newMagazine);
+            gameState.knownNextShot = null;
+
+            // 8. 웨이브 정보 텍스트 업데이트 (UI 갱신을 위해)
+            settings.bulletText = `${totalBullets}발 (실탄 ${liveCount}, 공포탄 ${blankCount})`;
+
+        }
+
+        /**
+         * 특수 능력 선택 모달을 표시합니다.
+         */
+        function showPerkSelectionModal() {
+            const modal = document.getElementById('perk-modal');
+            const optionsContainer = document.getElementById('perk-options');
+            optionsContainer.innerHTML = ''; // 기존 내용 초기화
+
+            // PERKS 객체를 순회하며 버튼 생성
+            Object.keys(PERKS).forEach(perkId => {
+                const perk = PERKS[perkId];
+                const button = document.createElement('button');
+
+                // 버튼 스타일링
+                button.className = 'w-full text-left p-4 bg-gray-700 hover:bg-gray-600 rounded-lg transition duration-200 border border-transparent hover:border-red-500';
+
+                button.innerHTML = `
+            <p class="text-xl font-bold text-white">${perk.name}</p>
+            <p class="text-sm text-gray-300 mt-1">${perk.description}</p>
+        `;
+
+                // 버튼 클릭 시 선택 함수 호출
+                button.onclick = () => selectPerk(perkId);
+                optionsContainer.appendChild(button);
+            });
+
+            modal.classList.remove('hidden'); // 모달 표시
+        }
+
+        /**
+         * 특수 능력을 선택하고 게임을 시작합니다.
+         */
+        async function selectPerk(perkId) {
+            gameState.selectedPerk = perkId; // 특수 능력 저장
+            document.getElementById('perk-modal').classList.add('hidden'); // 모달 숨기기
+            await slowPrint(`\n\n✅ 플레이어가 특수 능력 '${PERKS[perkId].name}'을(를) 선택했습니다.`);
+            startGame(); // 게임 시작! (이제 selectedPerk가 true이므로 바로 시작 로직으로 들어갑니다)
+        }
+
+
+        function reloadMagazine() {
+            const round = gameState.currentPage;
+            const settings = PAGE_SETTINGS[round];
+
+            if (!settings) return { player: null, dealer: null };
+
+            // 1. 총알 수 결정, 장전 및 섞기 (기존 로직 유지)
+            const minBullet = settings.minBullet || 2;
+            const totalBullets = Math.floor(Math.random() * (settings.maxBullet - minBullet + 1)) + minBullet;
+
+            const liveCount = Math.floor(Math.random() * (totalBullets + 1));
+            const blankCount = totalBullets - liveCount;
+            const newMagazine = [];
+            for (let i = 0; i < liveCount; i++) newMagazine.push(true);
+            for (let i = 0; i < blankCount; i++) newMagazine.push(false);
+
+            gameState.magazine = shuffle(newMagazine);
+            gameState.knownNextShot = null;
+
+            settings.bulletText = `${totalBullets}발 (실탄 ${liveCount}, 공포탄 ${blankCount})`;
+
+            // 2. 사격 관련 임시 효과 리셋 (탄창이 바뀌었으므로 리셋)
+            gameState.playerProtected = false;
+            gameState.dealerProtected = false;
+            gameState.playerSawActive = false;
+            gameState.dealerSawActive = false;
+            gameState.playerDamageFixToOne = false;
+            gameState.dealerDamageFixToOne = false;
+
+            // 3. 아이템 추가 지급 (💡 2개씩 지급하도록 수정)
+            const allItems = Object.keys(ITEM_EFFECTS);
+            let addedItems = { player: [], dealer: [] }; // 아이템 배열을 저장하도록 변경
+
+            // MAX_ITEM_SLOTS(8개) 제한을 두어 아이템이 무한정 늘어나는 것을 방지합니다.
+            function giveRandomItem(itemsArray) {
+                if (itemsArray.length < MAX_ITEM_SLOTS) {
+                    const item = shuffle([...allItems])[0];
+                    itemsArray.push(item);
+                    return item;
+                }
+                return null; // 슬롯이 가득 찼으면 null 반환
+            }
+
+            // 💡 플레이어에게 2개 지급
+            for (let i = 0; i < 2; i++) {
+                const pItem = giveRandomItem(gameState.playerItems);
+                if (pItem) addedItems.player.push(pItem);
+            }
+            // 💡 딜러에게 2개 지급
+            for (let i = 0; i < 2; i++) {
+                const dItem = giveRandomItem(gameState.dealerItems);
+                if (dItem) addedItems.dealer.push(dItem);
+            }
+
+            // 아이템을 하나라도 받았다면 배열을, 아니면 null을 반환하여 로깅 로직을 지원
+            return {
+                player: addedItems.player.length > 0 ? addedItems.player : null,
+                dealer: addedItems.dealer.length > 0 ? addedItems.dealer : null
+            };
+        }
+
+
+        /**
+         * 승리 조건을 확인하고 게임을 종료하거나 다음 턴으로 전환합니다.
+         */
+        async function checkWinCondition() {
+            // 1. 플레이어 패배
+            if (gameState.playerHP <= 0) {
+                await slowPrint(`\n💀 플레이어 패배! 딜러가 최종 승리했습니다. 💀`);
+                gameState.turn = 'end';
+                renderUI();
+                return true;
+            }
+
+            // 2. 딜러 승리 (웨이브 클리어)
+            if (gameState.dealerHP <= 0) {
+                await slowPrint(`\n🎉 플레이어 승리! 딜러를 무찔렀습니다! 🎉`);
+
+                if (gameState.currentPage < PAGE_SETTINGS.maxRound) {
+                    // 💡 다음 웨이브로 진입 (아이템 초기화 시점)
+                    await slowPrint(`\n\n🌟 웨이브 클리어! ${gameState.currentPage + 1} 웨이브로 진입합니다! 🌟`);
+                    gameState.currentPage += 1; // 웨이브 증가
+
+                    setupNewRound(); // HP, 아이템, 탄창 모두 초기화
+
+                    gameState.turn = 'player'; // 다음 웨이브는 플레이어 턴으로 시작
+                    renderUI();
+                    await slowPrint("\n새로운 웨이브가 시작됩니다. 플레이어의 턴입니다.");
+                    return true;
+                } else {
+                    await slowPrint(`\n\n🏆 모든 웨이브를 완료했습니다! 최종 승리! 🏆`);
+                    gameState.turn = 'end';
+                    renderUI();
+                    return true;
+                }
+            }
+
+            // 3. 탄창이 비었고, HP가 모두 남아있는 경우 (자동 재장전 및 아이템 지급)
+            if (gameState.magazine.length === 0 && gameState.turn !== 'end') {
+                if (gameState.currentPage <= PAGE_SETTINGS.maxRound) {
+
+                    // 💡 자동 리롤 및 아이템/HP 유지
+                    const addedItems = reloadMagazine(); // <-- 아이템 지급 및 탄창 리로드
+
+                    await slowPrint(`\n\n🔄 탄창이 모두 비었습니다! 자동으로 재장전됩니다. 아이템과 HP는 유지됩니다.`);
+
+                    // 💡 아이템 지급 로깅 (배열을 받아 출력하도록 수정)
+                    // 배열을 ', '로 합치고, 앞뒤에 작은따옴표를 붙여서 깔끔하게 만듭니다.
+                    const playerItemsLog = addedItems.player ? `'${addedItems.player.join("', '")}'` : null;
+                    const dealerItemsLog = addedItems.dealer ? `'${addedItems.dealer.join("', '")}'` : null;
+
+                    if (playerItemsLog || dealerItemsLog) {
+                        let log = "🎁 리롤 보너스: ";
+                        if (playerItemsLog) {
+                            log += `플레이어 ${playerItemsLog} 획득`;
+                        }
+                        if (dealerItemsLog) {
+                            if (playerItemsLog) log += ", ";
+                            log += `딜러 ${dealerItemsLog} 획득`;
+                        }
+                        await slowPrint(log + ".");
+                    }
+
+                    renderUI();
+                    // 턴은 이미 shotgunAction에서 결정되었으므로 그대로 유지하고 게임 진행.
+                    if (gameState.turn === 'dealer') {
+                        setTimeout(dealerTurn, 1500);
+                    }
+                } else {
+
+                }
+                return true;
+            }
+
+            return false;
+        }
+
+        /**
+         * 딜러의 턴 로직 (아이템 사용 및 사격) - AI 로직
+         */
+        async function dealerTurn() {
+            if (gameState.turn !== 'dealer' || await checkWinCondition()) return;
+
+            await slowPrint("\n🤖 딜러의 턴입니다...");
+
+            // 딜러 AI 로직: 아이템 사용 (최대 3개까지 연속 사용 시도)
+            for (let i = 0; i < 3; i++) {
+                const itemToUseIndex = findBestDealerItem();
+                if (itemToUseIndex !== -1) {
+                    await useDealerItemAI(itemToUseIndex);
+                    // 아이템 사용 후 잠시 대기
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } else {
+                    break; // 더 이상 사용할 아이템이 없으면 루프 종료
+                }
+            }
+
+            // 딜러 사격 결정 (간단화된 AI)
+            let target = 'dealer';
+
+            // 실탄/공포탄 수 비율
+            const liveCount = gameState.magazine.filter(b => b).length;
+            const blankCount = gameState.magazine.filter(b => !b).length;
+            const totalBullets = liveCount + blankCount;
+            const liveRatio = totalBullets > 0 ? (liveCount / totalBullets) : 0;
+
+            if (gameState.knownNextShot === true) {
+                target = 'player'; // 실탄 확정 -> 플레이어에게 쏘기
+            } else if (gameState.knownNextShot === false) {
+                target = 'dealer'; // 공포탄 확정 -> 자신에게 쏘기 (턴 유지)
+            } else {
+                // 모를 때: 실탄 비율 > 50% 이고, 딜러가 덜 위험할 때 상대에게 쏠지 결정
+                if (liveRatio > 0.5 && gameState.dealerHP >= gameState.playerHP) {
+                    target = 'player';
+                } else {
+                    target = 'dealer';
+                }
+            }
+
+            // 사격 실행
+            if (gameState.magazine.length > 0) {
+                await shotgunAction(target);
+            } else {
+                // 탄창이 비었는데, checkWinCondition()이 호출되지 않은 예외 상황 방지
+                await checkWinCondition();
+            }
+        }
+
+        /**
+         * 딜러 AI가 사용할 아이템을 결정합니다. (개선된 우선순위 전략)
+         */
+        function findBestDealerItem() {
+            const items = gameState.dealerItems;
+
+            // 1. [공격] 실탄 확정 + 쇠톱/동전 (최우선)
+            if (gameState.knownNextShot === true) {
+                if (items.includes("쇠톱") && !gameState.dealerSawActive) return items.indexOf("쇠톱");
+                // 💡 [동전 추가] 쇠톱이 없지만 동전이 있고, 아직 활성화되지 않았을 때
+                if (items.includes("동전") && !gameState.dealerDamageAddOne) return items.indexOf("동전");
+            }
+
+            // 2. [정보] 다음 탄환을 모를 때, 확대경/휴대폰 사용
+            if (gameState.knownNextShot === null) {
+                if (items.includes("확대경")) return items.indexOf("확대경");
+                if (items.includes("휴대폰") && gameState.magazine.length > 2) return items.indexOf("휴대폰");
+            }
+            // 3. [방어] HP가 2 이하로 낮고, 담배가 있을 때
+            if (gameState.dealerHP <= 3 && items.includes("담배")) {
+                return items.indexOf("담배");
+            }
+            if (gameState.dealerHP <= 2 && items.includes("약")) {
+                return items.indexOf("약");
+            }
+            if (gameState.dealerHP <= 3 && items.includes("술") && !gameState.dealerDrunkSkip) {
+                return items.indexOf("술");
+            }
+            // 4. [방어] 다음 사격이 실탄 확정이고 방탄복이 없을 때
+            if (gameState.knownNextShot === true && items.includes("방탄복") && !gameState.dealerProtected) {
+                return items.indexOf("방탄복");
+            }
+            // 5. [회피/턴 유지] 다음 탄환이 공포탄 확정일 때 (손톱/맥주로 턴 유지 기회 늘림)
+            if (gameState.knownNextShot === false && gameState.magazine.length > 2) {
+                if (items.includes("손톱")) return items.indexOf("손톱");
+                if (items.includes("맥주")) return items.indexOf("맥주");
+            }
+            // 6. [직접 피해] 나이프 사용 (HP 차이가 클 때, 공격적으로 사용)
+            if (items.includes("나이프") && gameState.playerHP > gameState.dealerHP) {
+                return items.indexOf("나이프");
+            }
+            if (items.includes("당첨된복권") && gameState.playerHP >= gameState.dealerHP) {
+                return items.indexOf("당첨된복권");
+            }
+            // 7. [교란] 플레이어 아이템이 3개 이상일 때, 주사기 사용
+            if (items.includes("주사기") && gameState.playerItems.length >= 3) {
+                return items.indexOf("주사기");
+            }
+            // 8. [부적] 다음 사격이 실탄이거나 모를 때, HP가 1일 때 부적 사용
+            if (items.includes("부적") && gameState.dealerHP === 1 && !gameState.dealerDamageFixToOne) {
+                return items.indexOf("부적");
+            }
+            // 9. [폭탄] 딜러의 HP가 3 이상일 때 (리스크가 적을 때)
+            if (items.includes("폭탄") && gameState.dealerHP >= 3) {
+                return items.indexOf("폭탄");
+            }
+            // 9. [정보/변수] 탄환 정보가 확실치 않고 탄환이 많을 때 '에어컨' 사용
+            if (items.includes("미니에어컨") && gameState.magazine.length >= 4 && gameState.knownNextShot === null) {
+                return items.indexOf("미니에어컨");
+            }
+
+            // 10. [도박] 아이템이 1개 이하로 부족할 때 '눈알' 사용
+            if (items.includes("눈알") && gameState.dealerItems.length <= 1) {
+                return items.indexOf("눈알");
+            }
+
+            // 💡 [추가] 저격총 (공격)
+            // 플레이어 HP가 높을 때 저격하여 격차를 줄입니다.
+            if (items.includes("저격총") && gameState.playerHP > gameState.dealerHP) {
+                return items.indexOf("저격총");
+            }
+
+            // 💡 [추가] 모래시계 (정보/리셋)
+            const liveCount = gameState.magazine.filter(b => b).length;
+            const blankCount = gameState.magazine.filter(b => !b).length;
+            // 탄환 정보가 불확실하고 실탄 개수가 공포탄보다 2개 이상 많을 때 리셋 시도
+            if (items.includes("모래시계") && gameState.knownNextShot === null && liveCount > blankCount + 2) {
+                return items.indexOf("모래시계");
+            }
+
+            // 💡 [추가] 도화선 (방어)
+            // 딜러의 도화선이 활성화되지 않았고, 플레이어 아이템이 3개 이상일 때 폭탄 대비
+            if (items.includes("도화선") && !gameState.dealerFuseActive && gameState.playerItems.length >= 3) {
+                return items.indexOf("도화선");
+            }
+
+            // 💡 [추가] 트릭박스 (도박)
+            // 딜러 HP가 3 이하로 낮고, 플레이어 HP가 딜러보다 2 이상 높을 때 역전 기회 노림
+            if (items.includes("트릭박스") && gameState.dealerHP <= 3 && gameState.playerHP > gameState.dealerHP + 2) {
+                return items.indexOf("트릭박스");
+            }
+
+            return -1;
+        }
+
+
+        /**
+         * 플레이어가 아이템을 사용합니다.
+         */
+        async function usePlayerItem(item, index) { // 유저 아이템 사용
+            // 아이템 사용 전 로깅
+            await slowPrint(`\n[아이템 사용] 😎 플레이어가 '${item}'을(를) 사용합니다.`);
+
+            gameState.playerItems.splice(index, 1); // 아이템 사용 후 제거
+            const maxPlayerHP = PAGE_SETTINGS[gameState.currentPage]?.playerHP || 10;
+
+            switch (item) {
+                case "확대경":
+                    if (gameState.magazine.length > 0) {
+                        gameState.knownNextShot = gameState.magazine[0];
+                        await slowPrint(`🔍 효과: 다음 탄환은 ${gameState.knownNextShot ? '실탄 🔴' : '공포탄 🟡'} 입니다.`);
+                    } else {
+                        await slowPrint("❌ 효과: 탄창이 비어있어 정보 확인에 실패했습니다.");
+                    }
+                    break;
+                case "휴대폰":
+                    if (gameState.magazine.length > 0) {
+                        // 사용자에게 확인할 탄환 번호 입력 요청 (1부터 시작)
+                        const input = prompt(`📱 몇 번째 탄환을 확인하시겠습니까? (1 ~ ${gameState.magazine.length})`);
+                        const index = parseInt(input) - 1; // 배열 인덱스는 0부터 시작하므로 -1
+
+                        // 입력값 유효성 검사
+                        if (isNaN(index) || index < 0 || index >= gameState.magazine.length) {
+                            await slowPrint("❌ 효과: 유효하지 않은 탄환 번호를 입력했습니다. (아이템 복구 불가)");
+                            // 아이템은 사용했으므로 복구하지 않습니다.
+                        } else {
+                            const isLive = gameState.magazine[index];
+                            // 정보를 저장하여 나중에 확인할 수 있도록 합니다. (UI 렌더링에 사용할 수 있음)
+                            gameState.knownBulletInfo.push({index: index, isLive: isLive});
+                            await slowPrint(`📱 효과: ${index + 1}번째 탄환은 ${isLive ? '실탄 🔴' : '공포탄 🟡'} 입니다.`);
+                        }
+                    } else {
+                        await slowPrint("❌ 효과: 탄창이 비어있어 정보 확인에 실패했습니다.");
+                    }
+                    break;
+                case "수갑":
+                    gameState.dealerSkipNextTurn = true;
+                    await slowPrint("🔗 효과: 딜러의 다음 턴이 스킵됩니다.");
+                    break;
+                case "담배":
+                    const maxP_HP_Cig = PAGE_SETTINGS[gameState.currentPage]?.playerHP || 10;
+                    gameState.playerHP = Math.min(gameState.playerHP + 1, maxP_HP_Cig);
+                    await slowPrint(`🚬 효과: HP +1 회복. (현재 HP: ${gameState.playerHP})`);
+                    break;
+                case "약":
+                    const isSuccess = Math.random() < 0.5; // 50% 확률
+                    if (isSuccess) {
+                        gameState.playerHP += 2;
+                        await slowPrint(`💊 효과: HP +2 회복! 행운의 약이었습니다. (현재 HP: ${gameState.dealerHP})`);
+                    } else {
+                        gameState.playerHP = Math.max(0, gameState.playerHP - 1);
+                        await slowPrint(`💊 효과: HP -1 피해! 불운의 약이었습니다. (현재 HP: ${gameState.playerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "동전":
+                    const coinSuccess = Math.random() < 0.7; // 70% 확률
+                    if (coinSuccess) {
+                        gameState.playerDamageAddOne = true;
+                        await slowPrint("🪙 효과: 다음 사격의 피해가 +1 증가합니다! (70% 성공)");
+                    } else {
+                        gameState.playerHP = Math.max(0, gameState.playerHP - 1);
+                        await slowPrint(`🪙 효과: 1 피해를 입었습니다. (30% 실패) (HP: ${gameState.playerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "눈알":
+                    gameState.playerHP = Math.max(0, gameState.playerHP - 1); // HP 1 감소
+
+                    const allItems = Object.keys(ITEM_EFFECTS);
+                    const item1 = shuffle([...allItems])[0];
+                    const item2 = shuffle([...allItems])[0];
+
+                    gameState.playerItems.push(item1, item2); // 2개 아이템 획득
+
+                    await slowPrint(`👁️ 효과: HP 1 피해! (HP: ${gameState.playerHP}). 대신 '${item1}'와 '${item2}'를 얻었습니다.`);
+                    await checkWinCondition();
+                    break;
+                case "술":
+                    gameState.playerHP += 2;
+                    gameState.playerDrunkSkip = true;
+                    await slowPrint(`🥃 효과: HP +2 회복! (HP: ${gameState.playerHP}). 다음 턴은 쉴게요.`);
+                    await checkWinCondition();
+                    break;
+                case "당첨된복권":
+                    const ticketSuccess = Math.random() < 0.5; // 50% 확률
+                    if (ticketSuccess) {
+                        gameState.dealerHP = Math.max(0, gameState.dealerHP - 1); // 딜러에게 1 피해
+                        await slowPrint(`🎫 효과: 상대방에게 1 피해! 행운의 복권이었습니다. (딜러 HP: ${gameState.dealerHP})`);
+                    } else {
+                        const allItems = Object.keys(ITEM_EFFECTS);
+                        const item = shuffle([...allItems])[0];
+                        gameState.playerItems.push(item); // 아이템 1개 획득
+                        await slowPrint(`🎫 효과: 아이템 '${item}' 1개 획득! 복권 당첨 실패..`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "미니에어컨":
+                    if (gameState.magazine.length > 0) {
+                        gameState.magazine.reverse(); // 탄환 배열 순서 뒤집기
+                        gameState.knownNextShot = null; // 정보 초기화 (탄환 순서가 바뀌었으므로)
+                        await slowPrint(`❄️ 효과: 현재 탄창의 순서가 뒤집혔습니다!`);
+                    } else {
+                        await slowPrint("❌ 효과: 탄창이 비어있어 탄환을 뒤집을 수 없습니다.");
+                    }
+                    break;
+                case "쇠톱":
+                    gameState.playerSawActive = true;
+                    await slowPrint("🪚 효과: 다음 사격의 피해가 2배가 됩니다.");
+                    break;
+                case "방탄복":
+                    gameState.playerProtected = true;
+                    await slowPrint("🛡️ 효과: 다음 1회 피해를 무효화합니다.");
+                    break;
+                case "나이프":
+                    gameState.dealerHP = Math.max(0, gameState.dealerHP - 1);
+                    await slowPrint(`🔪 효과: 딜러에게 1 피해! (HP: ${gameState.dealerHP})`);
+                    await checkWinCondition();
+                    break;
+                case "손톱":
+                    if (gameState.magazine.length > 0) {
+                        const removedBullet = gameState.magazine.shift();
+                        gameState.knownNextShot = null;
+                        await slowPrint(`💅 효과: 맨 앞의 탄환 ${removedBullet ? '실탄 🔴' : '공포탄 🟡'}을(를) 배출했습니다.`);
+                    } else {
+                        await slowPrint("❌ 효과: 탄창이 비어있어 배출할 탄환이 없습니다.");
+                    }
+                    break;
+                case "맥주":
+                    if (gameState.magazine.length > 0) {
+                        const removedBullet = gameState.magazine.pop();
+                        gameState.knownNextShot = null;
+                        await slowPrint(`🍺 효과: 맨 뒤의 탄환 ${removedBullet ? '실탄 🔴' : '공포탄 🟡'}을(를) 배출했습니다.`);
+                    } else {
+                        await slowPrint("❌ 효과: 탄창이 비어있어 배출할 탄환이 없습니다.");
+                    }
+                    break;
+                case "주사기":
+                    if (gameState.dealerItems.length > 0) {
+                        const stolenIndex = Math.floor(Math.random() * gameState.dealerItems.length);
+                        const stolenItem = gameState.dealerItems.splice(stolenIndex, 1)[0];
+                        gameState.playerItems.push(stolenItem);
+                        await slowPrint(`💉 효과: 딜러의 '${stolenItem}'을 훔쳤습니다!`);
+                    } else {
+                        await slowPrint("❌ 효과: 딜러가 가진 아이템이 없어 훔치기에 실패했습니다.");
+                    }
+                    break;
+                case "부적":
+                    gameState.playerDamageFixToOne = true;
+                    await slowPrint("✨ 효과: 다음 1회 사격에서 받는 피해를 1로 고정합니다.");
+                    break;
+                case "폭탄":
+                    if (gameState.dealerFuseActive) {
+                        await slowPrint(`💥💣 딜러의 도화선(🔥) 효과로 인해 플레이어의 폭탄이 무효화되었습니다!`);
+                        gameState.dealerFuseActive = false; // 도화선 효과 소모
+                    } else {
+                        gameState.dealerHP = Math.max(0, gameState.dealerHP - 2); // 상대 2 피해
+                        gameState.playerHP = Math.max(0, gameState.playerHP - 1); // 자신 1 피해
+                        await slowPrint(`💥 효과: 딜러에게 2 피해! (HP: ${gameState.dealerHP}), 자신에게 1 피해! (HP: ${gameState.playerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "모래시계":
+                    const oldMagazineLength = gameState.magazine.length;
+                    const addedItems = reloadMagazine(); // 탄창 리로드 및 아이템 2개 지급
+                    await slowPrint(`⏳ 효과: 남아있던 ${oldMagazineLength}개의 탄환을 버리고 새 탄창으로 장전했습니다.`);
+
+                    // 재장전 보너스 아이템 획득 로깅 (UI에 표시)
+                    const playerItemsLog = addedItems.player ? `'${addedItems.player.join("', '")}'` : null;
+                    const dealerItemsLog = addedItems.dealer ? `'${addedItems.dealer.join("', '")}'` : null;
+                    if (playerItemsLog || dealerItemsLog) {
+                        let log = "🎁 재장전 보너스: ";
+                        if (playerItemsLog) log += `플레이어 ${playerItemsLog} 획득`;
+                        if (dealerItemsLog) {
+                            if (playerItemsLog) log += ", ";
+                            log += `딜러 ${dealerItemsLog} 획득`;
+                        }
+                        await slowPrint(log + ".");
+                    }
+                    break;
+                // 💡 [추가] 저격총
+                case "저격총":
+                    gameState.dealerHP = Math.max(0, gameState.dealerHP - 2);
+                    await slowPrint(`🎯 효과: 딜러에게 2 피해! (HP: ${gameState.dealerHP})`);
+                    await checkWinCondition();
+                    break;
+                // 💡 [추가] 도화선
+                case "도화선":
+                    gameState.playerFuseActive = true;
+                    await slowPrint("🔥 효과: 상대방의 다음 '폭탄' 아이템 사용을 무효화할 준비가 되었습니다.");
+                    break;
+                // 💡 [추가] 트릭박스
+                case "트릭박스":
+                    const swapChance = Math.random() < 0.3; // 30% 확률
+                    if (swapChance) {
+                        [gameState.playerHP, gameState.dealerHP] = [gameState.dealerHP, gameState.playerHP];
+                        await slowPrint(`🎁 효과: 체력 뒤바꾸기 성공! (플레이어 HP: ${gameState.playerHP}, 딜러 HP: ${gameState.dealerHP})`);
+                    } else {
+                        gameState.playerHP = Math.max(0, gameState.playerHP - 2);
+                        await slowPrint(`🎁 효과: 체력 뒤바꾸기 실패... HP -2 피해! (HP: ${gameState.playerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                default:
+            }
+
+            // 아이템 사용 후 UI 업데이트
+            renderUI();
+            checkWinCondition(); // 아이템 사용 후 탄창이 비었을 수 있으므로 체크
+        }
+
+        /**
+         * 딜러가 아이템을 사용합니다.
+         */
+        async function useDealerItemAI(index) {
+            const item = gameState.dealerItems[index];
+            gameState.dealerItems.splice(index, 1);
+
+            const maxDealerHp = PAGE_SETTINGS[gameState.currentPage]?.dealerHP || 10;
+
+            await slowPrint(`\n[아이템 사용] 🤖 딜러가 '${item}'을(를) 사용합니다.`);
+
+            switch (item) {
+                case "확대경":
+                    if (gameState.magazine.length > 0) {
+                        gameState.knownNextShot = gameState.magazine[0];
+                        await slowPrint(`🔍 효과: 다음 탄환은 ${gameState.knownNextShot ? '실탄 🔴' : '공포탄 🟡'} 입니다.`);
+                    }
+                    break;
+                case "약":
+                    const isSuccess = Math.random() < 0.5; // 50% 확률
+                    if (isSuccess) {
+                        gameState.dealerHP += 2; // ✅ 수정: HP 2 회복 (최대치 초과 허용)
+                        await slowPrint(`💊 효과: HP +2 회복! 행운의 약이었습니다. (현재 HP: ${gameState.playerHP})`);
+                    } else {
+                        gameState.dealerHP = Math.max(0, gameState.dealerHP - 1);
+                        await slowPrint(`💊 효과: HP -1 피해! 불운의 약이었습니다. (현재 HP: ${gameState.dealerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "휴대폰":
+                    if (gameState.magazine.length > 0) {
+                        // 딜러는 무작위로 하나 확인하거나, 탄환 수가 적을 때 처음/끝 확인
+                        const index = gameState.magazine.length <= 3 ? 0 : Math.floor(Math.random() * gameState.magazine.length);
+                        const isLive = gameState.magazine[index];
+                        gameState.knownBulletInfo.push({index: index, isLive: isLive});
+                        await slowPrint(`📱 효과: ${index + 1}번째 탄환은 ${isLive ? '플레이어는 알 수 없습니다.' : '플레이어는 알 수 없습니다.'}`);
+                    }
+                    break;
+                case "동전":
+                    const coinSuccess = Math.random() < 0.7; // 70% 확률
+                    if (coinSuccess) {
+                        gameState.dealerDamageAddOne = true;
+                        await slowPrint("🪙 효과: 다음 사격의 피해가 +1 증가합니다! (70% 성공)");
+                    } else {
+                        gameState.dealerHP = Math.max(0, gameState.dealerHP - 1);
+                        await slowPrint(`🪙 효과: 1 피해를 입었습니다. (30% 실패) (HP: ${gameState.dealerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "눈알":
+                    gameState.dealerHP = Math.max(0, gameState.dealerHP - 1); // HP 1 감소
+
+                    const allItems = Object.keys(ITEM_EFFECTS);
+                    const item1 = shuffle([...allItems])[0];
+                    const item2 = shuffle([...allItems])[0];
+
+                    gameState.dealerItems.push(item1, item2); // 2개 아이템 획득
+
+                    await slowPrint(`👁️ 효과: 딜러 HP 1 피해! (HP: ${gameState.dealerHP}). 대신 '${item1}'와 '${item2}'를 얻었습니다.`);
+                    await checkWinCondition();
+                    break;
+                case "술":
+                    gameState.dealerHP += 2; // ✅ 수정: HP 2 회복 (최대치 초과 허용)
+                    gameState.dealerDrunkSkip = true;
+                    await slowPrint(`🥃 효과: HP +2 회복! (HP: ${gameState.dealerHP}). 다음 턴은 딜러가 쉽니다.`);
+                    await checkWinCondition();
+                    break;
+                case "당첨된복권":
+                    const ticketSuccess = Math.random() < 0.5; // 50% 확률
+                    if (ticketSuccess) {
+                        gameState.playerHP = Math.max(0, gameState.playerHP - 1); // 플레이어에게 1 피해
+                        await slowPrint(`🎫 효과: 플레이어에게 1 피해! 행운의 복권이었습니다. (플레이어 HP: ${gameState.playerHP})`);
+                    } else {
+                        const allItems = Object.keys(ITEM_EFFECTS);
+                        const item = shuffle([...allItems])[0];
+                        gameState.dealerItems.push(item); // 아이템 1개 획득
+                        await slowPrint(`🎫 효과: 아이템 '${item}' 1개 획득! 복권 당첨 실패..`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "미니에어컨":
+                    if (gameState.magazine.length > 0) {
+                        gameState.magazine.reverse(); // 탄환 배열 순서 뒤집기
+                        gameState.knownNextShot = null; // 정보 초기화
+                        await slowPrint(`❄️ 효과: 현재 탄창의 순서가 뒤집혔습니다!`);
+                    } else {
+                        // 딜러는 이 아이템을 탄창이 비었을 때 사용하지 않도록 AI에서 처리
+                    }
+                    break;
+                case "수갑":
+                    gameState.playerSkipNextTurn = true;
+                    await slowPrint("🔗 효과: 플레이어의 다음 턴이 스킵됩니다.");
+                    break;
+                case "담배":
+                    gameState.dealerHP = Math.min(gameState.dealerHP + 1, maxHP);
+                    await slowPrint(`🚬 효과: HP +1 회복. (현재 HP: ${gameState.dealerHP})`);
+                    break;
+                case "쇠톱":
+                    gameState.dealerSawActive = true;
+                    await slowPrint("🪚 효과: 다음 사격의 피해가 2배가 됩니다.");
+                    break;
+                case "방탄복":
+                    gameState.dealerProtected = true;
+                    await slowPrint("🛡️ 효과: 다음 1회 피해를 무효화합니다.");
+                    break;
+                case "주사기":
+                    if (gameState.playerItems.length > 0) {
+                        const stolenIndex = Math.floor(Math.random() * gameState.playerItems.length);
+                        const stolenItem = gameState.playerItems.splice(stolenIndex, 1)[0];
+                        gameState.dealerItems.push(stolenItem);
+                        await slowPrint(`💉 효과: 플레이어의 '${stolenItem}'을 훔쳤습니다!`);
+                    } else {
+                        await slowPrint("❌ 효과: 플레이어가 가진 아이템이 없어 훔치기에 실패했습니다.");
+                    }
+                    break;
+                case "나이프":
+                    gameState.playerHP = Math.max(0, gameState.playerHP - 1);
+                    await slowPrint(`🔪 효과: 플레이어에게 1 피해! (HP: ${gameState.playerHP})`);
+                    await checkWinCondition();
+                    break;
+                case "손톱":
+                    if (gameState.magazine.length > 0) {
+                        const removedBullet = gameState.magazine.shift();
+                        gameState.knownNextShot = null;
+                        await slowPrint(`💅 효과: 맨 앞의 탄환 ${removedBullet ? '실탄 🔴' : '공포탄 🟡'}을(를) 배출했습니다.`);
+                    }
+                    break;
+                case "맥주":
+                    if (gameState.magazine.length > 0) {
+                        const removedBullet = gameState.magazine.pop();
+                        gameState.knownNextShot = null;
+                        await slowPrint(`🍺 효과: 맨 뒤의 탄환 ${removedBullet ? '실탄 🔴' : '공포탄 🟡'}을(를) 배출했습니다.`);
+                    }
+                    break;
+                case "부적":
+                    gameState.dealerDamageFixToOne = true;
+                    await slowPrint("✨ 효과: 다음 1회 사격에서 받는 피해를 1로 고정합니다.");
+                    break;
+                case "폭탄":
+                    // 💡 [수정] 플레이어의 도화선 효과 확인
+                    if (gameState.playerFuseActive) {
+                        await slowPrint(`💥💣 플레이어의 도화선(🔥) 효과로 인해 딜러의 폭탄이 무효화되었습니다!`);
+                        gameState.playerFuseActive = false; // 도화선 효과 소모
+                    } else {
+                        gameState.playerHP = Math.max(0, gameState.playerHP - 2); // 상대(플레이어) 2 피해
+                        gameState.dealerHP = Math.max(0, gameState.dealerHP - 1); // 자신(딜러) 1 피해
+                        await slowPrint(`💥 효과: 플레이어에게 2 피해! (HP: ${gameState.playerHP}), 자신에게 1 피해! (HP: ${gameState.dealerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+                case "모래시계":
+                    const oldMagazineLength = gameState.magazine.length;
+                    reloadMagazine(); // 탄창 리로드 및 아이템 2개 지급 (딜러는 로깅만 함)
+                    await slowPrint(`⏳ 효과: 남아있던 ${oldMagazineLength}개의 탄환을 버리고 새 탄창으로 장전했습니다.`);
+                    renderUI();
+                    break;
+                // 💡 [추가] 저격총
+                case "저격총":
+                    gameState.playerHP = Math.max(0, gameState.playerHP - 2);
+                    await slowPrint(`🎯 효과: 플레이어에게 2 피해! (HP: ${gameState.playerHP})`);
+                    await checkWinCondition();
+                    break;
+                // 💡 [추가] 도화선
+                case "도화선":
+                    gameState.dealerFuseActive = true;
+                    await slowPrint("🔥 효과: 플레이어의 다음 '폭탄' 아이템 사용을 무효화할 준비가 되었습니다.");
+                    break;
+                // 💡 [추가] 트릭박스
+                case "트릭박스":
+                    const swapChance = Math.random() < 0.3; // 30% 확률
+                    if (swapChance) {
+                        [gameState.playerHP, gameState.dealerHP] = [gameState.dealerHP, gameState.playerHP];
+                        await slowPrint(`🎁 효과: 체력 뒤바꾸기 성공! (플레이어 HP: ${gameState.playerHP}, 딜러 HP: ${gameState.dealerHP})`);
+                    } else {
+                        gameState.dealerHP = Math.max(0, gameState.dealerHP - 2);
+                        await slowPrint(`🎁 효과: 체력 뒤바꾸기 실패... HP -2 피해! (HP: ${gameState.dealerHP})`);
+                    }
+                    await checkWinCondition();
+                    break;
+            }
+            renderUI();
+        }
+
+        /**
+         * 사격을 실행합니다.
+         */
+        async function shotgunAction(target) {
+            if (gameState.turn !== 'player' && gameState.turn !== 'dealer') return;
+            if (gameState.magazine.length === 0) {
+                // 탄창이 비었으므로 재장전 체크 (자동 처리됨)
+                await checkWinCondition();
+                return;
+            }
+
+            const isPlayerTurn = gameState.turn === 'player';
+            const isLive = gameState.magazine.shift();
+
+            gameState.knownNextShot = null;
+            let damage = 1;
+            if (gameState.playerSawActive || gameState.dealerSawActive) damage *= 2; // 쇠톱은 2배
+            if (isPlayerTurn && gameState.playerDamageAddOne) damage += 1; // 플레이어 동전은 +1
+            if (!isPlayerTurn && gameState.dealerDamageAddOne) damage += 1; // 딜러 동전은 +1
+
+            // 1. Log message fix (Requirement 1)
+            const shooterName = isPlayerTurn ? '플레이어 😎' : '딜러 🤖';
+            let logTarget;
+            if (isPlayerTurn) {
+                // Player's turn: target is 'self' (player) or 'player' (dealer)
+                logTarget = (target === 'self') ? '자신에게' : '딜러에게';
+            } else {
+                // Dealer's turn: target is 'dealer' (dealer) or 'player' (player)
+                logTarget = (target === 'dealer') ? '자신에게' : '플레이어에게';
+            }
+            await slowPrint(`\n🔫 ${shooterName}가 ${logTarget} 사격했습니다!`);
+
+
+            // 2. 턴 전환 결정 초기값은 상대방에게 턴 넘김으로 설정
+            let nextTurn = isPlayerTurn ? 'dealer' : 'player';
+
+            // 💡 isShotSelf 정의: 사격 대상이 쏘는 사람 자신인지 확인
+            let isShotSelf;
+            if (isPlayerTurn) {
+                isShotSelf = target === 'self'; // 플레이어가 자신에게 쏘는 경우
+            } else {
+                isShotSelf = target === 'dealer'; // 딜러가 자신에게 쏘는 경우
+            }
+
+
+            if (isLive) {
+                await slowPrint("🔴 실탄이었습니다!");
+
+                let isProtected = false;
+                let targetHPName = '';
+                // 맞은 사람이 플레이어인가?
+                // 플레이어 턴이면서 딜러를 쏘거나 (target='player')
+                // 딜러 턴이면서 플레이어를 쏘는 경우 (target='player')
+                let isPlayerTarget = (target === 'player');
+
+                // 딜러가 딜러에게 쐈을 때 (isPlayerTurn=false, target='dealer')는 딜러가 타겟임 (isPlayerTarget=false)
+
+                if (isPlayerTarget) {
+                    isProtected = gameState.playerProtected;
+                    targetHPName = '플레이어';
+                    // 💡 부적 효과 적용
+                    if (gameState.playerDamageFixToOne) {
+                        damage = Math.min(damage, 1);
+                        gameState.playerDamageFixToOne = false;
+                        await slowPrint(`✨ ${targetHPName}의 부적 효과로 피해가 1로 고정됩니다!`);
+                    }
+                } else {
+                    isProtected = gameState.dealerProtected;
+                    targetHPName = '딜러';
+                    // 💡 부적 효과 적용
+                    if (gameState.dealerDamageFixToOne) {
+                        damage = Math.min(damage, 1);
+                        gameState.dealerDamageFixToOne = false;
+                        await slowPrint(`✨ ${targetHPName}의 부적 효과로 피해가 1로 고정됩니다!`);
+                    }
+                }
+
+                if (isProtected) {
+                    await slowPrint(`🛡️ ${targetHPName}가 방탄복으로 피해를 막았습니다!`);
+                    if (isPlayerTarget) gameState.playerProtected = false;
+                    else gameState.dealerProtected = false;
+                    damage = 0;
+                }
+
+                if (damage > 0) {
+                    if (isPlayerTarget) {
+                        gameState.playerHP -= damage;
+                    } else {
+                        gameState.dealerHP -= damage;
+                    }
+                    const targetHPVar = isPlayerTarget ? gameState.playerHP : gameState.dealerHP;
+                    await slowPrint(`💥 ${targetHPName}가 ${damage} 피해를 입었습니다! (남은 HP: ${Math.max(0, targetHPVar)})`);
+                }
+
+                // 쇠톱 효과 초기화
+                gameState.playerSawActive = false;
+                gameState.dealerSawActive = false;
+                gameState.playerDamageAddOne = false;
+                gameState.dealerDamageAddOne = false;
+
+                // 💡 규칙: 실탄을 사용하면 적중여부에 관계없이 무조건 상대방에게 턴이 넘어간다.
+                // nextTurn은 이미 상대방으로 설정되어 있으므로 별도 수정 불필요
+                nextTurn = isPlayerTurn ? 'dealer' : 'player';
+
+            } else {
+                await slowPrint("🟡 공포탄이었습니다! 💨");
+                gameState.playerDamageAddOne = false;
+                gameState.dealerDamageAddOne = false;
+
+                // 💡 규칙: 공포탄 시, 자신에게 쏘면 턴 유지, 상대에게 쏘면 턴 전환
+                if (isShotSelf) {
+                    // 자신에게 쐈을 때 턴 유지
+                    nextTurn = gameState.turn;
+                } else {
+                    // 상대에게 쐈을 때 턴 전환
+                    nextTurn = isPlayerTurn ? 'dealer' : 'player';
+                }
+            }
+
+            // 💡 부적 효과는 사격 후 리셋 (실탄/공포탄 무관)
+            gameState.playerDamageFixToOne = false;
+            gameState.dealerDamageFixToOne = false;
+
+
+            // 턴 전환 직전, 수갑 효과 처리 (이 로직은 그대로 유지합니다)
+            if (gameState.dealerSkipNextTurn && nextTurn === 'dealer') {
+                await slowPrint("🔗 딜러가 수갑에 묶여 턴을 스킵합니다. 플레이어의 턴이 다시 시작됩니다.");
+                gameState.dealerSkipNextTurn = false;
+                nextTurn = 'player';
+            } else if (gameState.playerSkipNextTurn && nextTurn === 'player') {
+                await slowPrint("🔗 플레이어가 수갑에 묶여 턴을 스킵합니다. 딜러의 턴이 다시 시작됩니다.");
+                gameState.playerSkipNextTurn = false;
+                nextTurn = 'dealer';
+            }
+
+            if (gameState.playerDrunkSkip && nextTurn === 'player') {
+                await slowPrint("🥃 플레이어가 술에 취해 턴을 스킵합니다. 딜러의 턴이 다시 시작됩니다.");
+                gameState.playerDrunkSkip = false;
+                nextTurn = 'dealer';
+            }
+
+            if (gameState.dealerDrunkSkip && nextTurn === 'dealer') {
+                await slowPrint("🥃 딜러가 술에 취해 턴을 스킵합니다. 플레이어의 턴이 다시 시작됩니다.");
+                gameState.dealerDrunkSkip = false;
+                nextTurn = 'player';
+            }
+
+            gameState.turn = nextTurn;
+
+            gameState.totalTurns++; // 총 턴 수 증가
+            await slowPrint(`(총 ${gameState.totalTurns}턴 경과)`); // 턴 수 로깅
+
+            if (gameState.totalTurns % 15 === 0) {
+                await slowPrint("\n🌟 15턴 보너스! 🌟 플레이어와 딜러가 무작위 아이템을 2개씩 획득합니다.");
+                const allItems = Object.keys(ITEM_EFFECTS);
+
+                // 아이템 지급 및 로깅
+                let addedItems = { player: [], dealer: [] };
+                function giveRandomItem(itemsArray) {
+                    if (itemsArray.length < MAX_ITEM_SLOTS) {
+                        const item = shuffle([...allItems])[0];
+                        itemsArray.push(item);
+                        return item;
+                    }
+                    return null;
+                }
+
+                // 플레이어 2개 지급
+                for (let i = 0; i < 2; i++) {
+                    const pItem = giveRandomItem(gameState.playerItems);
+                    if (pItem) addedItems.player.push(pItem);
+                }
+                // 딜러 2개 지급
+                for (let i = 0; i < 2; i++) {
+                    const dItem = giveRandomItem(gameState.dealerItems);
+                    if (dItem) addedItems.dealer.push(dItem);
+                }
+
+                const playerItemsLog = addedItems.player.length > 0 ? `'${addedItems.player.join("', '")}'` : null;
+                const dealerItemsLog = addedItems.dealer.length > 0 ? `'${addedItems.dealer.join("', '")}'` : null;
+
+                if (playerItemsLog || dealerItemsLog) {
+                    let log = "🎁 15턴 보너스: ";
+                    if (playerItemsLog) log += `플레이어 ${playerItemsLog} 획득`;
+                    if (dealerItemsLog) {
+                        if (playerItemsLog) log += ", ";
+                        log += `딜러 ${dealerItemsLog} 획득`;
+                    }
+                    await slowPrint(log + ".");
+                }
+            }
+
+            renderUI();
+
+            if (!await checkWinCondition()) {
+                if (gameState.turn === 'dealer') {
+                    setTimeout(dealerTurn, 1500); // 딜러 턴은 1.5초 후 시작
+                } else if (gameState.turn === 'player' && gameState.magazine.length === 0) {
+                    await checkWinCondition();
+                }
+            }
+        }
+
+
+        // --- 5. UI 렌더링 함수 ---
+        function renderUI() {
+            // 1. HP 및 상태 업데이트
+            document.getElementById('dealer-hp').textContent = gameState.dealerHP;
+            document.getElementById('player-hp').textContent = gameState.playerHP;
+            document.getElementById('current-round').textContent = `웨이브: ${gameState.currentPage} / ${PAGE_SETTINGS.maxRound}`;
+
+            document.getElementById('current-turn').innerHTML = `턴: <span class="${gameState.turn === 'player' ? 'text-green-400' : 'text-red-400'}">${gameState.turn === 'player' ? '플레이어 😎' : (gameState.turn === 'dealer' ? '딜러 🤖' : '게임 종료')}</span>`;
+            document.getElementById('magazine-status').textContent = `탄창: ${gameState.magazine.length} 발 (실탄: ${gameState.magazine.filter(b => b).length}, 공포탄: ${gameState.magazine.filter(b => !b).length})`;
+
+            let knownShotText = '정보 없음';
+            if (gameState.knownNextShot !== null) {
+                knownShotText = gameState.knownNextShot ? '실탄 🔴' : '공포탄 🟡';
+            }
+            document.getElementById('known-next-shot').textContent = `다음 탄환 정보: ${knownShotText}`;
+
+            const activeEffects = [];
+            if(gameState.playerProtected) activeEffects.push('P-방탄');
+            if(gameState.dealerProtected) activeEffects.push('D-방탄');
+            if(gameState.playerSawActive) activeEffects.push('P-쇠톱(2X)');
+            if(gameState.dealerSawActive) activeEffects.push('D-쇠톱(2X)');
+            if(gameState.dealerSkipNextTurn) activeEffects.push('D-수갑');
+            if(gameState.playerSkipNextTurn) activeEffects.push('P-수갑');
+            if(gameState.playerDamageFixToOne) activeEffects.push('P-부적(1)');
+            if(gameState.playerDamageAddOne) activeEffects.push('P-동전(+1)');
+            if(gameState.dealerDamageAddOne) activeEffects.push('D-동전(+1)');
+            gameState.knownBulletInfo.forEach(info => {
+                activeEffects.push(`📱(${info.index + 1}T:${info.isLive ? '🔴' : '🟡'})`);
+            });
+            document.getElementById('active-effects').textContent = `활성화된 효과: ${activeEffects.length > 0 ? activeEffects.join(', ') : '없음'}`;
+
+
+            // 2. 아이템 렌더링 (8개 슬롯 고정)
+            [
+                { container: dealerItemsContainer, items: gameState.dealerItems, type: 'dealer', color: 'red-500' },
+                { container: playerItemsContainer, items: gameState.playerItems, type: 'player', color: 'green-500' }
+            ].forEach(({ container, items, type, color }) => {
+                container.innerHTML = '';
+                // 총 8개의 슬롯을 강제 렌더링
+                for (let i = 0; i < MAX_ITEM_SLOTS; i++) {
+                    const item = items[i];
+                    const isEmpty = item === undefined;
+                    const itemElement = document.createElement('div');
+                    const currentItem = isEmpty ? '빈 슬롯' : item;
+                    const itemIcon = isEmpty ? '⬜' : ITEM_ICONS[currentItem] || '❓'; // 아이콘 가져오기
+
+                    itemElement.className = `item-card rounded-lg p-3 shadow-lg flex flex-col justify-between items-center ${isEmpty ? 'empty' : `hover:border-${color}`}`;
+
+                    // 플레이어 턴일 때만 아이템 클릭 가능
+                    if (type === 'player' && !isEmpty && gameState.turn === 'player') {
+                        itemElement.setAttribute('onclick', `GameModule.handleItemClick('${currentItem}', '${type}', ${i})`);
+                    } else if (type === 'player' && gameState.turn !== 'player' && !isEmpty) {
+                        itemElement.removeAttribute('onclick');
+                        itemElement.style.cursor = 'default';
+                        itemElement.style.opacity = '0.7';
+                    }
+
+                    itemElement.innerHTML = `
+                    <span class="text-3xl">${itemIcon}</span>
+                    <p class="text-sm font-bold text-center mt-2">${isEmpty ? 'EMPTY' : currentItem}</p>
+                    <p class="text-xs text-gray-400 text-center mt-1">${isEmpty ? '' : ITEM_EFFECTS[currentItem] || '?'}</p>
+                `;
+                    container.appendChild(itemElement);
+                }
+            });
+
+            // 3. 컨트롤 버튼 렌더링
+            // 3-1. 시작/재시작 버튼
+            let buttonText = '게임 시작';
+            if (gameState.turn === 'end') {
+                buttonText = '새 게임 시작';
+            }
+
+            controlsStartElement.innerHTML = `
+                <button onclick="GameModule.startGame()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200">
+                    ${buttonText}
+                </button>
+            `;
+            if (gameState.turn === 'end' || gameState.currentPage === 0) {
+                controlsStartElement.classList.remove('hidden');
+            } else {
+                controlsStartElement.classList.add('hidden');
+            }
+
+
+            // 3-2. 사격 버튼 (게임 기록 아래에 위치)
+            controlsShotElement.innerHTML = '';
+            if (gameState.turn === 'player' && gameState.playerHP > 0 && gameState.dealerHP > 0 && gameState.magazine.length > 0) {
+                controlsShotElement.innerHTML = `
+        <button onclick="GameModule.shotgunAction('dealer')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200">
+            딜러에게 사격
+        </button>
+        <button onclick="GameModule.shotgunAction('player')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200">
+            자신에게 사격
+        </button>
+    `;
+            } else if (gameState.turn === 'dealer' && gameState.magazine.length > 0 && gameState.playerHP > 0 && gameState.dealerHP > 0) {
+                controlsShotElement.innerHTML = `<p class="text-lg text-red-500 text-center font-bold">딜러 🤖 턴 진행 중...</p>`;
+            } else {
+                controlsShotElement.innerHTML = `<p class="text-sm text-gray-400 text-center">게임을 시작하거나, 턴을 기다리세요.</p>`;
+            }
+
+        }
+
+        // --- 6. 공개 API ---
+
+        /**
+         * 아이템 카드 클릭 핸들러 (Public)
+         */
+        async function handleItemClick(item, type, index) {
+            if (type === 'dealer' || gameState.turn !== 'player' || item === '빈 슬롯') return;
+
+            // 아이템 사용
+            await usePlayerItem(item, index);
+        }
+
+        /**
+         * 게임 시작/초기화 및 다음 라운드 진입 (Public)
+         */
+        async function startGame() {
+            // 💡 [수정] 첫 시작 (currentPage=0)이면서 능력이 선택되지 않은 경우만 모달을 띄웁니다.
+            if (gameState.currentPage === 0 && gameState.selectedPerk === null) {
+                // 능력을 아직 선택하지 않았다면 선택 모달을 띄웁니다.
+                showPerkSelectionModal();
+                return; // 모달을 띄웠으니 여기서 함수 종료
+            }
+
+            // 이 아래 로직은 모달에서 능력을 선택한 직후 (selectedPerk !== null) 또는
+            // 게임 종료 후 재시작 (turn === 'end') 시에만 실행됩니다.
+
+            // 1 웨이브로 초기화
+            gameState.currentPage = 1;
+            setupNewRound(); // HP, 아이템, 탄창 모두 초기화
+            outputElement.innerHTML = ''; // 출력 초기화
+
+            const roundSettings = PAGE_SETTINGS[gameState.currentPage];
+
+            // 💡 특수 능력 적용 확인 문구 추가
+            let perkMessage = '';
+            if (gameState.selectedPerk) {
+                perkMessage = `(능력: ${PERKS[gameState.selectedPerk].name} 적용 완료)`;
+            }
+
+            await slowPrint(`🎉 룰렛 게임 시작! (1 웨이브) ${perkMessage}`);
+            await slowPrint(`😎 플레이어 HP: ${gameState.playerHP} | 🤖 딜러 HP: ${gameState.dealerHP}`);
+            await slowPrint(`탄창을 섞었습니다. ${roundSettings.bulletText}이(가) 장전되었습니다.`);
+
+            // 3. UI 렌더링
+            gameState.turn = 'player'; // 웨이브 시작 시 항상 플레이어 턴
+            renderUI();
+            await slowPrint("\n플레이어의 턴입니다. 사격 또는 아이템을 사용하세요.");
+        }
+
+        // 외부에 공개할 함수들을 반환합니다.
+        return {
+            startGame,
+            shotgunAction,
+            handleItemClick,
+            renderUI, // 초기 렌더링을 위해 노출
+            selectPerk
+        };
+    })();
+
+    // 페이지 로드 시 초기 UI 렌더링
+    window.onload = () => {
+        GameModule.renderUI();
+    };
+</script>
+
+<div id="perk-modal" class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 hidden">
+    <div class="bg-gray-800 p-8 rounded-lg shadow-2xl max-w-lg w-full border border-red-500">
+        <h2 class="text-2xl font-bold text-red-400 mb-6 text-center">🌟 특수 능력 선택 🌟</h2>
+
+        <div id="perk-options" class="space-y-4">
+        </div>
+
+        <p class="text-sm text-gray-400 mt-6 text-center">선택한 능력은 모든 웨이브에 적용됩니다.</p>
+    </div>
+</div>
+
+</body>
+</html>
