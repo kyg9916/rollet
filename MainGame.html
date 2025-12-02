@@ -876,9 +876,7 @@
         async function useDealerItemAI(index) {
             const item = gameState.dealerItems[index];
             gameState.dealerItems.splice(index, 1);
-
             const maxDealerHp = PAGE_SETTINGS[gameState.currentPage]?.dealerHP || 10;
-
             await slowPrint(`\n[아이템 사용] 🤖 딜러가 '${item}'을(를) 사용합니다.`);
 
             switch (item) {
@@ -964,7 +962,7 @@
                     await slowPrint("🔗 효과: 플레이어의 다음 턴이 스킵됩니다.");
                     break;
                 case "담배":
-                    gameState.dealerHP = Math.min(gameState.dealerHP + 1, maxHP);
+                    gameState.dealerHP = Math.min(gameState.dealerHP + 1, maxDealerHp);
                     await slowPrint(`🚬 효과: HP +1 회복. (현재 HP: ${gameState.dealerHP})`);
                     break;
                 case "쇠톱":
