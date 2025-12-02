@@ -962,7 +962,7 @@
                     await slowPrint("🔗 효과: 플레이어의 다음 턴이 스킵됩니다.");
                     break;
                 case "담배":
-                    gameState.dealerHP = Math.min(gameState.dealerHP + 1, maxDealerHp);
+                    gameState.dealerHP = Math.min(gameState.dealerHP + 1, maxHP);
                     await slowPrint(`🚬 효과: HP +1 회복. (현재 HP: ${gameState.dealerHP})`);
                     break;
                 case "쇠톱":
